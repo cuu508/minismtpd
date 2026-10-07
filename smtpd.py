@@ -70,7 +70,6 @@ class SMTPChannel(socketserver.StreamRequestHandler):
         super().setup()
 
         self.data_size_limit = DATA_SIZE_DEFAULT
-        self.enable_SMTPUTF8 = True
         self._emptystring = b''
         self._linesep = b'\r\n'
         self._dotsep = ord(b'.')
@@ -221,9 +220,8 @@ class SMTPChannel(socketserver.StreamRequestHandler):
             self.push('250-SIZE %s' % self.data_size_limit)
             self.command_size_limits['MAIL'] += 26
         self.push('250-8BITMIME')
-        if self.enable_SMTPUTF8:
-            self.push('250-SMTPUTF8')
-            self.command_size_limits['MAIL'] += 10
+        self.push('250-SMTPUTF8')
+        self.command_size_limits['MAIL'] += 10
         self.push('250 HELP')
 
     def smtp_NOOP(self, arg):
@@ -341,13 +339,12 @@ class SMTPChannel(socketserver.StreamRequestHandler):
         if body not in ['7BIT', '8BITMIME']:
             self.push('501 Error: BODY can only be one of 7BIT, 8BITMIME')
             return
-        if self.enable_SMTPUTF8:
-            smtputf8 = params.pop('SMTPUTF8', False)
-            if smtputf8 is True:
-                self.require_SMTPUTF8 = True
-            elif smtputf8 is not False:
-                self.push('501 Error: SMTPUTF8 takes no arguments')
-                return
+        smtputf8 = params.pop('SMTPUTF8', False)
+        if smtputf8 is True:
+            self.require_SMTPUTF8 = True
+        elif smtputf8 is not False:
+            self.push('501 Error: SMTPUTF8 takes no arguments')
+            return
         size = params.pop('SIZE', None)
         if size:
             if not size.isdigit():
