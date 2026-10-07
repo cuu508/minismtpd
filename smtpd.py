@@ -24,16 +24,14 @@ Version: %(__version__)s
 #
 
 
-import sys
+import collections
 import errno
 import socket
 import socketserver
-import collections
+import sys
 from email._header_value_parser import get_addr_spec, get_angle_addr
 
-__all__ = [
-    "SMTPChannel", "SMTPServer", "DebuggingServer", "PureProxy",
-]
+__all__ = ["SMTPChannel", "SMTPServer"]
 
 
 
