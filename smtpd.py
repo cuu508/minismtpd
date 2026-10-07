@@ -24,16 +24,6 @@ __all__ = ["SMTPServer"]
 __version__ = "Python SMTP proxy version 0.3"
 
 
-class Devnull:
-    def write(self, msg):
-        pass
-
-    def flush(self):
-        pass
-
-
-NEWLINE = "\n"
-COMMASPACE = ", "
 DATA_SIZE_DEFAULT = 33554432
 
 
@@ -55,10 +45,8 @@ class SMTPChannel(socketserver.StreamRequestHandler):
         super().setup()
 
         self.data_size_limit = DATA_SIZE_DEFAULT
-        self._emptystring = b""
         self._linesep = b"\r\n"
         self._dotsep = ord(b".")
-        self._newline = b"\n"
         self._set_rset_state()
         self.seen_greeting = ""
         self.extended_smtp = False
@@ -87,9 +75,12 @@ class SMTPChannel(socketserver.StreamRequestHandler):
             elif self.smtp_state == self.DATA:
                 if prev_line is not None:
                     if line == b".\r\n":
-                        self.collect_incoming_data(prev_line.rstrip(b"\r\n"))
+                        # found the <CR><LF>.<CR><LF> sequence,
+                        # collect previous line sans its trailing \r\n
+                        self.collect_incoming_data(prev_line.rstrip(self._linesep))
                         self.found_terminator()
                     else:
+                        # collect the full previous line
                         self.collect_incoming_data(prev_line)
                 prev_line = line
 
@@ -126,7 +117,7 @@ class SMTPChannel(socketserver.StreamRequestHandler):
         self.received_lines.append(data)
 
     def found_terminator(self):
-        line = self._emptystring.join(self.received_lines)
+        line = b"".join(self.received_lines)
         self.received_lines = []
         if self.smtp_state == self.COMMAND:
             sz, self.num_bytes = self.num_bytes, 0
@@ -168,7 +159,7 @@ class SMTPChannel(socketserver.StreamRequestHandler):
                     data.append(text[1:])
                 else:
                     data.append(text)
-            self.received_data = self._newline.join(data)
+            self.received_data = b"\n".join(data)
             args = (self.peer, self.mailfrom, self.rcpttos, self.received_data)
             kwargs = {}
             kwargs = {
