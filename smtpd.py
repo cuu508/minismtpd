@@ -156,7 +156,7 @@ class SMTPChannel(socketserver.StreamRequestHandler):
             method(arg)
             return command == "QUIT"
         else:
-            if self.data_size_limit and self.num_bytes > self.data_size_limit:
+            if self.num_bytes > self.data_size_limit:
                 self.push("552 Error: Too much mail data")
                 self.num_bytes = 0
                 return
@@ -207,9 +207,8 @@ class SMTPChannel(socketserver.StreamRequestHandler):
         self.seen_greeting = arg
         self.extended_smtp = True
         self.push("250-%s" % self.fqdn)
-        if self.data_size_limit:
-            self.push("250-SIZE %s" % self.data_size_limit)
-            self.command_size_limits["MAIL"] += 26
+        self.push("250-SIZE %s" % self.data_size_limit)
+        self.command_size_limits["MAIL"] += 26
         self.push("250-8BITMIME")
         self.push("250-SMTPUTF8")
         self.command_size_limits["MAIL"] += 10
@@ -344,7 +343,7 @@ class SMTPChannel(socketserver.StreamRequestHandler):
             if not size.isdigit():
                 self.push(syntaxerr)
                 return
-            elif self.data_size_limit and int(size) > self.data_size_limit:
+            elif int(size) > self.data_size_limit:
                 self.push("552 Error: message size exceeds fixed maximum message size")
                 return
         if len(params.keys()) > 0:
