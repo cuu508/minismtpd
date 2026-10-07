@@ -1,41 +1,26 @@
-"""An RFC 5321 smtp proxy with optional RFC 1870 and RFC 6531 extensions.
+"""An RFC 5321 smtp proxy with optional RFC 1870 and RFC 6531 extensions."""
 
-Version: %(__version__)s
-
-"""
-
-# Overview:
+# A modified version of CPython's smtpd module:
+# https://raw.githubusercontent.com/python/cpython/refs/heads/3.11/Lib/smtpd.py
 #
 # This file implements the minimal SMTP protocol as defined in RFC 5321.  It
-# has a hierarchy of classes which implement the backend functionality for the
-# smtpd.  A number of classes are provided:
+# contains SMTPServer - a base class for the SMTP server. To use it,
+# subclass it and implement the "process_message" method.
 #
-#   SMTPServer - the base class for the backend.  Raises NotImplementedError
-#   if you try to use it.
+# Original author: Barry Warsaw <barry@python.org>
 #
-#   DebuggingServer - simply prints each message it receives on stdout.
-#
-#   PureProxy - Proxies all messages to a real smtpd which does final
-#   delivery.  One known problem with this class is that it doesn't handle
-#   SMTP errors from the backend server at all.  This should be fixed
-#   (contributions are welcome!).
-#
-# Author: Barry Warsaw <barry@python.org>
-#
-
+# Modifications:
+# * Updated to run using socketserver instead of asyncore and asynchat
+# * Removed bits we are not using: CLI, DebuggingServer and PureProxy
+# * SMTPUTF8 is always enabled
 
 import collections
 import errno
 import socket
 import socketserver
-import sys
 from email._header_value_parser import get_addr_spec, get_angle_addr
 
-__all__ = ["SMTPChannel", "SMTPServer"]
-
-
-
-program = sys.argv[0]
+__all__ = ["SMTPServer"]
 __version__ = 'Python SMTP proxy version 0.3'
 
 
@@ -89,13 +74,22 @@ class SMTPChannel(socketserver.StreamRequestHandler):
 
     def handle(self):
         self.push('220 %s %s' % (self.fqdn, __version__))
+        prev_data_line = None
         for line in self.rfile:
-            line = line.rstrip(b"\r\n")
-            self.collect_incoming_data(line)
-            if self.smtp_state == self.COMMAND or line == b".":
+            if self.smtp_state == self.COMMAND:
+                prev_data_line = None
+                self.collect_incoming_data(line.rstrip(b"\r\n"))
                 should_quit = self.found_terminator()
                 if should_quit:
                     break
+            elif self.smtp_state == self.DATA:
+                if prev_data_line is not None:
+                    if prev_data_line + line == b"\r\n.\r\n":
+                        self.found_terminator()
+                    else:
+                        self.collect_incoming_data(prev_data_line)
+                prev_data_line = line
+
 
     def _set_post_data_state(self):
         """Reset state variables to their post-DATA state."""
