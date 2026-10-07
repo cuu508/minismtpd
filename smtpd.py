@@ -1,47 +1,7 @@
-#! /usr/bin/env python3
 """An RFC 5321 smtp proxy with optional RFC 1870 and RFC 6531 extensions.
-
-Usage: %(program)s [options] [localhost:localport [remotehost:remoteport]]
-
-Options:
-
-    --nosetuid
-    -n
-        This program generally tries to setuid `nobody', unless this flag is
-        set.  The setuid call will fail if this program is not run as root (in
-        which case, use this flag).
-
-    --version
-    -V
-        Print the version number and exit.
-
-    --class classname
-    -c classname
-        Use `classname' as the concrete SMTP proxy class.  Uses `PureProxy' by
-        default.
-
-    --size limit
-    -s limit
-        Restrict the total size of the incoming message to "limit" number of
-        bytes via the RFC 1870 SIZE extension.  Defaults to 33554432 bytes.
-
-    --smtputf8
-    -u
-        Enable the SMTPUTF8 extension and behave as an RFC 6531 smtp proxy.
-
-    --debug
-    -d
-        Turn on debugging prints.
-
-    --help
-    -h
-        Print this message and exit.
 
 Version: %(__version__)s
 
-If localhost is not given then `localhost' is used, and if localport is not
-given then 8025 is used.  If remotehost is not given then `localhost' is used,
-and if remoteport is not given, then 25 is used.
 """
 
 # Overview:
@@ -60,41 +20,21 @@ and if remoteport is not given, then 25 is used.
 #   SMTP errors from the backend server at all.  This should be fixed
 #   (contributions are welcome!).
 #
-#
 # Author: Barry Warsaw <barry@python.org>
 #
-# TODO:
-#
-# - support mailbox delivery
-# - alias files
-# - Handle more ESMTP extensions
-# - handle error codes from the backend smtpd
+
 
 import sys
-import os
 import errno
-import getopt
-import time
 import socket
+import socketserver
 import collections
-from warnings import warn
 from email._header_value_parser import get_addr_spec, get_angle_addr
 
 __all__ = [
     "SMTPChannel", "SMTPServer", "DebuggingServer", "PureProxy",
 ]
 
-_DEPRECATION_MSG = ('The {name} module is deprecated and unmaintained and will '
-                    'be removed in Python {remove}.  Please see aiosmtpd '
-                    '(https://aiosmtpd.readthedocs.io/) for the recommended '
-                    'replacement.')
-
-
-
-# These are imported after the above warning so that users get the correct
-# deprecation warning.
-import asyncore
-import asynchat
 
 
 program = sys.argv[0]
@@ -112,14 +52,7 @@ COMMASPACE = ', '
 DATA_SIZE_DEFAULT = 33554432
 
 
-def usage(code, msg=''):
-    print(__doc__ % globals(), file=sys.stderr)
-    if msg:
-        print(msg, file=sys.stderr)
-    sys.exit(code)
-
-
-class SMTPChannel(asynchat.async_chat):
+class SMTPChannel(socketserver.StreamRequestHandler):
     COMMAND = 0
     DATA = 1
 
@@ -133,44 +66,39 @@ class SMTPChannel(asynchat.async_chat):
         except ValueError:
             return self.command_size_limit
 
-    def __init__(self, server, conn, addr, data_size_limit=DATA_SIZE_DEFAULT,
-                 map=None, enable_SMTPUTF8=False, decode_data=False):
-        asynchat.async_chat.__init__(self, conn, map=map)
-        self.smtp_server = server
-        self.conn = conn
-        self.addr = addr
-        self.data_size_limit = data_size_limit
-        self.enable_SMTPUTF8 = enable_SMTPUTF8
-        self._decode_data = decode_data
-        if enable_SMTPUTF8 and decode_data:
-            raise ValueError("decode_data and enable_SMTPUTF8 cannot"
-                             " be set to True at the same time")
-        if decode_data:
-            self._emptystring = ''
-            self._linesep = '\r\n'
-            self._dotsep = '.'
-            self._newline = NEWLINE
-        else:
-            self._emptystring = b''
-            self._linesep = b'\r\n'
-            self._dotsep = ord(b'.')
-            self._newline = b'\n'
+    def setup(self):
+        super().setup()
+
+        self.data_size_limit = DATA_SIZE_DEFAULT
+        self.enable_SMTPUTF8 = True
+        self._emptystring = b''
+        self._linesep = b'\r\n'
+        self._dotsep = ord(b'.')
+        self._newline = b'\n'
         self._set_rset_state()
         self.seen_greeting = ''
         self.extended_smtp = False
         self.command_size_limits.clear()
         self.fqdn = socket.getfqdn()
         try:
-            self.peer = conn.getpeername()
+            self.peer = self.request.getpeername()
         except OSError as err:
             # a race condition  may occur if the other end is closing
             # before we can get the peername
-            self.close()
             if err.errno != errno.ENOTCONN:
                 raise
             return
         print('Peer:', repr(self.peer), file=DEBUGSTREAM)
+
+    def handle(self):
         self.push('220 %s %s' % (self.fqdn, __version__))
+        for line in self.rfile:
+            line = line.rstrip(b"\r\n")
+            self.collect_incoming_data(line)
+            if self.smtp_state == self.COMMAND or line == b".":
+                should_quit = self.found_terminator()
+                if should_quit:
+                    break
 
     def _set_post_data_state(self):
         """Reset state variables to their post-DATA state."""
@@ -179,7 +107,6 @@ class SMTPChannel(asynchat.async_chat):
         self.rcpttos = []
         self.require_SMTPUTF8 = False
         self.num_bytes = 0
-        self.set_terminator(b'\r\n')
 
     def _set_rset_state(self):
         """Reset all state variables except the greeting."""
@@ -189,8 +116,7 @@ class SMTPChannel(asynchat.async_chat):
 
     # Overrides base class for convenience.
     def push(self, msg):
-        asynchat.async_chat.push(self, bytes(
-            msg + '\r\n', 'utf-8' if self.require_SMTPUTF8 else 'ascii'))
+        self.wfile.write(bytes(msg + '\r\n', 'utf-8' if self.require_SMTPUTF8 else 'ascii'))
 
     # Implementation of base class abstract method
     def collect_incoming_data(self, data):
@@ -203,10 +129,8 @@ class SMTPChannel(asynchat.async_chat):
             return
         elif limit:
             self.num_bytes += len(data)
-        if self._decode_data:
-            self.received_lines.append(str(data, 'utf-8'))
-        else:
-            self.received_lines.append(data)
+
+        self.received_lines.append(data)
 
     # Implementation of base class abstract method
     def found_terminator(self):
@@ -218,8 +142,7 @@ class SMTPChannel(asynchat.async_chat):
             if not line:
                 self.push('500 Error: bad syntax')
                 return
-            if not self._decode_data:
-                line = str(line, 'utf-8')
+            line = str(line, 'utf-8')
             i = line.find(' ')
             if i < 0:
                 command = line.upper()
@@ -237,7 +160,7 @@ class SMTPChannel(asynchat.async_chat):
                 self.push('500 Error: command "%s" not recognized' % command)
                 return
             method(arg)
-            return
+            return command == "QUIT"
         else:
             if self.smtp_state != self.DATA:
                 self.push('451 Internal confusion')
@@ -258,12 +181,11 @@ class SMTPChannel(asynchat.async_chat):
             self.received_data = self._newline.join(data)
             args = (self.peer, self.mailfrom, self.rcpttos, self.received_data)
             kwargs = {}
-            if not self._decode_data:
-                kwargs = {
-                    'mail_options': self.mail_options,
-                    'rcpt_options': self.rcpt_options,
-                }
-            status = self.smtp_server.process_message(*args, **kwargs)
+            kwargs = {
+                'mail_options': self.mail_options,
+                'rcpt_options': self.rcpt_options,
+            }
+            status = self.server.process_message(*args, **kwargs)
             self._set_post_data_state()
             if not status:
                 self.push('250 OK')
@@ -298,8 +220,7 @@ class SMTPChannel(asynchat.async_chat):
         if self.data_size_limit:
             self.push('250-SIZE %s' % self.data_size_limit)
             self.command_size_limits['MAIL'] += 26
-        if not self._decode_data:
-            self.push('250-8BITMIME')
+        self.push('250-8BITMIME')
         if self.enable_SMTPUTF8:
             self.push('250-SMTPUTF8')
             self.command_size_limits['MAIL'] += 10
@@ -314,7 +235,6 @@ class SMTPChannel(asynchat.async_chat):
     def smtp_QUIT(self, arg):
         # args is ignored
         self.push('221 Bye')
-        self.close_when_done()
 
     def _strip_command_keyword(self, keyword, arg):
         keylen = len(keyword)
@@ -417,11 +337,10 @@ class SMTPChannel(asynchat.async_chat):
         if params is None:
             self.push(syntaxerr)
             return
-        if not self._decode_data:
-            body = params.pop('BODY', '7BIT')
-            if body not in ['7BIT', '8BITMIME']:
-                self.push('501 Error: BODY can only be one of 7BIT, 8BITMIME')
-                return
+        body = params.pop('BODY', '7BIT')
+        if body not in ['7BIT', '8BITMIME']:
+            self.push('501 Error: BODY can only be one of 7BIT, 8BITMIME')
+            return
         if self.enable_SMTPUTF8:
             smtputf8 = params.pop('SMTPUTF8', False)
             if smtputf8 is True:
@@ -497,7 +416,6 @@ class SMTPChannel(asynchat.async_chat):
             self.push('501 Syntax: DATA')
             return
         self.smtp_state = self.DATA
-        self.set_terminator(b'\r\n.\r\n')
         self.push('354 End data with <CR><LF>.<CR><LF>')
 
     # Commands that have not been implemented
@@ -505,49 +423,10 @@ class SMTPChannel(asynchat.async_chat):
         self.push('502 EXPN not implemented')
 
 
-class SMTPServer(asyncore.dispatcher):
-    # SMTPChannel class to use for managing client connections
-    channel_class = SMTPChannel
+class SMTPServer(socketserver.TCPServer):
+    def __init__(self, server_address):
+        super().__init__(server_address, SMTPChannel)
 
-    def __init__(self, localaddr, remoteaddr,
-                 data_size_limit=DATA_SIZE_DEFAULT, map=None,
-                 enable_SMTPUTF8=False, decode_data=False):
-        self._localaddr = localaddr
-        self._remoteaddr = remoteaddr
-        self.data_size_limit = data_size_limit
-        self.enable_SMTPUTF8 = enable_SMTPUTF8
-        self._decode_data = decode_data
-        if enable_SMTPUTF8 and decode_data:
-            raise ValueError("decode_data and enable_SMTPUTF8 cannot"
-                             " be set to True at the same time")
-        asyncore.dispatcher.__init__(self, map=map)
-        try:
-            gai_results = socket.getaddrinfo(*localaddr,
-                                             type=socket.SOCK_STREAM)
-            self.create_socket(gai_results[0][0], gai_results[0][1])
-            # try to re-use a server port if possible
-            self.set_reuse_addr()
-            self.bind(localaddr)
-            self.listen(5)
-        except:
-            self.close()
-            raise
-        else:
-            print('%s started at %s\n\tLocal addr: %s\n\tRemote addr:%s' % (
-                self.__class__.__name__, time.ctime(time.time()),
-                localaddr, remoteaddr), file=DEBUGSTREAM)
-
-    def handle_accepted(self, conn, addr):
-        print('Incoming connection from %s' % repr(addr), file=DEBUGSTREAM)
-        channel = self.channel_class(self,
-                                     conn,
-                                     addr,
-                                     self.data_size_limit,
-                                     self._map,
-                                     self.enable_SMTPUTF8,
-                                     self._decode_data)
-
-    # API for "doing something useful with the message"
     def process_message(self, peer, mailfrom, rcpttos, data, **kwargs):
         """Override this abstract method to handle messages from the client.
 
@@ -657,106 +536,3 @@ class PureProxy(SMTPServer):
         return refused
 
 
-class Options:
-    setuid = True
-    classname = 'PureProxy'
-    size_limit = None
-    enable_SMTPUTF8 = False
-
-
-def parseargs():
-    global DEBUGSTREAM
-    try:
-        opts, args = getopt.getopt(
-            sys.argv[1:], 'nVhc:s:du',
-            ['class=', 'nosetuid', 'version', 'help', 'size=', 'debug',
-             'smtputf8'])
-    except getopt.error as e:
-        usage(1, e)
-
-    options = Options()
-    for opt, arg in opts:
-        if opt in ('-h', '--help'):
-            usage(0)
-        elif opt in ('-V', '--version'):
-            print(__version__)
-            sys.exit(0)
-        elif opt in ('-n', '--nosetuid'):
-            options.setuid = False
-        elif opt in ('-c', '--class'):
-            options.classname = arg
-        elif opt in ('-d', '--debug'):
-            DEBUGSTREAM = sys.stderr
-        elif opt in ('-u', '--smtputf8'):
-            options.enable_SMTPUTF8 = True
-        elif opt in ('-s', '--size'):
-            try:
-                int_size = int(arg)
-                options.size_limit = int_size
-            except:
-                print('Invalid size: ' + arg, file=sys.stderr)
-                sys.exit(1)
-
-    # parse the rest of the arguments
-    if len(args) < 1:
-        localspec = 'localhost:8025'
-        remotespec = 'localhost:25'
-    elif len(args) < 2:
-        localspec = args[0]
-        remotespec = 'localhost:25'
-    elif len(args) < 3:
-        localspec = args[0]
-        remotespec = args[1]
-    else:
-        usage(1, 'Invalid arguments: %s' % COMMASPACE.join(args))
-
-    # split into host/port pairs
-    i = localspec.find(':')
-    if i < 0:
-        usage(1, 'Bad local spec: %s' % localspec)
-    options.localhost = localspec[:i]
-    try:
-        options.localport = int(localspec[i+1:])
-    except ValueError:
-        usage(1, 'Bad local port: %s' % localspec)
-    i = remotespec.find(':')
-    if i < 0:
-        usage(1, 'Bad remote spec: %s' % remotespec)
-    options.remotehost = remotespec[:i]
-    try:
-        options.remoteport = int(remotespec[i+1:])
-    except ValueError:
-        usage(1, 'Bad remote port: %s' % remotespec)
-    return options
-
-
-if __name__ == '__main__':
-    options = parseargs()
-    # Become nobody
-    classname = options.classname
-    if "." in classname:
-        lastdot = classname.rfind(".")
-        mod = __import__(classname[:lastdot], globals(), locals(), [""])
-        classname = classname[lastdot+1:]
-    else:
-        import __main__ as mod
-    class_ = getattr(mod, classname)
-    proxy = class_((options.localhost, options.localport),
-                   (options.remotehost, options.remoteport),
-                   options.size_limit, enable_SMTPUTF8=options.enable_SMTPUTF8)
-    if options.setuid:
-        try:
-            import pwd
-        except ImportError:
-            print('Cannot import module "pwd"; try running with -n option.', file=sys.stderr)
-            sys.exit(1)
-        nobody = pwd.getpwnam('nobody')[2]
-        try:
-            os.setuid(nobody)
-        except PermissionError:
-            print('Cannot setuid "nobody"; try running with -n option.', file=sys.stderr)
-            sys.exit(1)
-    try:
-        asyncore.loop()
-    except KeyboardInterrupt:
-        pass
