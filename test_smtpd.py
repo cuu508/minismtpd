@@ -1,7 +1,10 @@
-import io
+# This is a modified version of CPython's smtpd module's tests.
+# The original version:
+# https://raw.githubusercontent.com/python/cpython/refs/heads/3.11/Lib/test/test_smtpd.py
+# Its license:
+# https://raw.githubusercontent.com/python/cpython/refs/heads/3.11/LICENSE
+
 import smtpd
-import socket
-import textwrap
 import unittest
 from unittest.mock import Mock
 
@@ -14,8 +17,6 @@ class DummyServer:
         self.messages.append((peer, mailfrom, rcpttos, data))
         if data == b"return status":
             return "250 Okish"
-        # if "mail_options" in kw and "SMTPUTF8" in kw["mail_options"]:
-        #     return "250 SMTPUTF8 message okish"
 
 
 class RiggedSMTPChannel(smtpd.SMTPChannel):

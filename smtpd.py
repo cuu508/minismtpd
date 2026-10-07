@@ -1,17 +1,17 @@
-"""An RFC 5321 smtp proxy with optional RFC 1870 and RFC 6531 extensions."""
-
-# A modified version of CPython's smtpd module:
-# https://raw.githubusercontent.com/python/cpython/refs/heads/3.11/Lib/smtpd.py
-#
 # This file implements the minimal SMTP protocol as defined in RFC 5321.  It
-# contains SMTPServer - a base class for the SMTP server. To use it,
-# subclass it and implement the "process_message" method.
+# a base class for the SMTP server (SMTPServer). Use it by subclassing
+# and implementing the "process_message" method.
 #
+# This is a modified version of CPython's smtpd module.
+# The original version:
+# https://raw.githubusercontent.com/python/cpython/refs/heads/3.11/Lib/smtpd.py
+# Its license:
+# https://raw.githubusercontent.com/python/cpython/refs/heads/3.11/LICENSE
 # Original author: Barry Warsaw <barry@python.org>
 #
 # Modifications:
 # * Updated to run using socketserver instead of asyncore and asynchat
-# * Removed bits we are not using: CLI, DebuggingServer and PureProxy
+# * Removed various bits we don't need: CLI, DebuggingServer and PureProxy
 # * SMTPUTF8 is always enabled
 
 import collections
