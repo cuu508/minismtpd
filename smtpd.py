@@ -29,7 +29,6 @@ class Devnull:
     def flush(self): pass
 
 
-DEBUGSTREAM = Devnull()
 NEWLINE = '\n'
 COMMASPACE = ', '
 DATA_SIZE_DEFAULT = 33554432
@@ -70,7 +69,6 @@ class SMTPChannel(socketserver.StreamRequestHandler):
             if err.errno != errno.ENOTCONN:
                 raise
             return
-        print('Peer:', repr(self.peer), file=DEBUGSTREAM)
 
     def handle(self):
         self.push('220 %s %s' % (self.fqdn, __version__))
@@ -126,7 +124,6 @@ class SMTPChannel(socketserver.StreamRequestHandler):
     # Implementation of base class abstract method
     def found_terminator(self):
         line = self._emptystring.join(self.received_lines)
-        print('Data:', repr(line), file=DEBUGSTREAM)
         self.received_lines = []
         if self.smtp_state == self.COMMAND:
             sz, self.num_bytes = self.num_bytes, 0
@@ -304,7 +301,6 @@ class SMTPChannel(socketserver.StreamRequestHandler):
         if not self.seen_greeting:
             self.push('503 Error: send HELO first')
             return
-        print('===> MAIL', arg, file=DEBUGSTREAM)
         syntaxerr = '501 Syntax: MAIL FROM: <address>'
         if self.extended_smtp:
             syntaxerr += ' [SP <mail-parameters>]'
@@ -349,14 +345,12 @@ class SMTPChannel(socketserver.StreamRequestHandler):
             self.push('555 MAIL FROM parameters not recognized or not implemented')
             return
         self.mailfrom = address
-        print('sender:', self.mailfrom, file=DEBUGSTREAM)
         self.push('250 OK')
 
     def smtp_RCPT(self, arg):
         if not self.seen_greeting:
             self.push('503 Error: send HELO first');
             return
-        print('===> RCPT', arg, file=DEBUGSTREAM)
         if not self.mailfrom:
             self.push('503 Error: need MAIL command')
             return
@@ -384,7 +378,6 @@ class SMTPChannel(socketserver.StreamRequestHandler):
             self.push('555 RCPT TO parameters not recognized or not implemented')
             return
         self.rcpttos.append(address)
-        print('recips:', self.rcpttos, file=DEBUGSTREAM)
         self.push('250 OK')
 
     def smtp_RSET(self, arg):
