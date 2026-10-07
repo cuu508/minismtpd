@@ -103,11 +103,9 @@ class SMTPChannel(socketserver.StreamRequestHandler):
         self.received_data = ''
         self.received_lines = []
 
-    # Overrides base class for convenience.
     def push(self, msg):
         self.wfile.write(bytes(msg + '\r\n', 'utf-8' if self.require_SMTPUTF8 else 'ascii'))
 
-    # Implementation of base class abstract method
     def collect_incoming_data(self, data):
         limit = None
         if self.smtp_state == self.COMMAND:
@@ -121,7 +119,6 @@ class SMTPChannel(socketserver.StreamRequestHandler):
 
         self.received_lines.append(data)
 
-    # Implementation of base class abstract method
     def found_terminator(self):
         line = self._emptystring.join(self.received_lines)
         self.received_lines = []
