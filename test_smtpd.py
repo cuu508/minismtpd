@@ -7,7 +7,7 @@
 import smtpd
 import socket
 import unittest
-from unittest.mock import MagicMock, Mock
+from unittest.mock import Mock
 
 MessageTuple = tuple[tuple[str, int], str, list[str], bytes]
 
@@ -115,7 +115,7 @@ class SMTPDChannelTest(unittest.TestCase):
     def test_HELO(self) -> None:
         name = socket.getfqdn()
         self.write_line(b"HELO example")
-        self.assertEqual(self.channel.last, "250 {}\r\n".format(name).encode("ascii"))
+        self.assertEqual(self.channel.last, f"250 {name}\r\n".encode("ascii"))
 
     def test_HELO_EHLO_duplicate(self) -> None:
         self.write_line(b"HELO example")

@@ -70,7 +70,7 @@ class SMTPChannel(socketserver.StreamRequestHandler):
         )
 
     def handle(self) -> None:
-        self.push("220 %s %s" % (self.fqdn, __version__))
+        self.push(f"220 {self.fqdn} {__version__}")
         data = bytearray()
         # Data terminator is not part of data, subtract its length from the
         # calculated data size:
@@ -113,7 +113,7 @@ class SMTPChannel(socketserver.StreamRequestHandler):
             return False
         method = getattr(self, "smtp_" + command, None)
         if not method:
-            self.push('500 Error: command "%s" not recognized' % command)
+            self.push(f'500 Error: command "{command}" not recognized')
             return False
         method(arg)
         return command == "QUIT"
@@ -154,7 +154,7 @@ class SMTPChannel(socketserver.StreamRequestHandler):
             return
         self._set_rset_state()
         self.seen_greeting = arg
-        self.push("250 %s" % self.fqdn)
+        self.push(f"250 {self.fqdn}")
 
     def smtp_EHLO(self, arg: str | None) -> None:
         if not arg:
@@ -167,8 +167,8 @@ class SMTPChannel(socketserver.StreamRequestHandler):
         self._set_rset_state()
         self.seen_greeting = arg
         self.extended_smtp = True
-        self.push("250-%s" % self.fqdn)
-        self.push("250-SIZE %s" % self.data_size_limit)
+        self.push(f"250-{self.fqdn}")
+        self.push(f"250-SIZE {self.data_size_limit}")
         self.push("250-8BITMIME")
         self.push("250-SMTPUTF8")
         self.push("250 HELP")
@@ -250,13 +250,13 @@ class SMTPChannel(socketserver.StreamRequestHandler):
 
     def smtp_VRFY(self, arg: str | None) -> None:
         if arg:
-            address, params = self._getaddr(arg)
+            address, _params = self._getaddr(arg)
             if address:
                 self.push(
                     "252 Cannot VRFY user, but will accept message and attempt delivery"
                 )
             else:
-                self.push("502 Could not VRFY %s" % arg)
+                self.push(f"502 Could not VRFY {arg}")
         else:
             self.push("501 Syntax: VRFY <address>")
 
