@@ -56,11 +56,9 @@ class SMTPChannel(socketserver.StreamRequestHandler):
         prev_line = None
         for line in self.rfile:
             if self.smtp_state == self.COMMAND:
-                prev_line = None
                 line = line.rstrip(b"\r\n")
-                self.collect_incoming_data(line)
-                should_quit = self.found_terminator()
-                if should_quit:
+                if self.handle_command(line):
+                    # True means the client has sent QUIT
                     break
             elif self.smtp_state == self.DATA:
                 if prev_line is not None:
@@ -68,7 +66,7 @@ class SMTPChannel(socketserver.StreamRequestHandler):
                         # found the <CR><LF>.<CR><LF> sequence,
                         # collect previous line sans its trailing \r\n
                         self.collect_incoming_data(prev_line.rstrip(self._linesep))
-                        self.found_terminator()
+                        self.handle_data()
                     else:
                         # collect the full previous line
                         self.collect_incoming_data(prev_line)
@@ -102,60 +100,58 @@ class SMTPChannel(socketserver.StreamRequestHandler):
         self.num_bytes += len(data)
         self.received_lines.append(data)
 
-    def found_terminator(self) -> bool:
+    def handle_command(self, line: bytes) -> bool:
+        if not line:
+            self.push("500 Error: bad syntax")
+            return False
+        line_str = str(line, "utf-8")
+        i = line_str.find(" ")
+        if i < 0:
+            command = line_str.upper()
+            arg = None
+        else:
+            command = line_str[:i].upper()
+            arg = line_str[i + 1 :].strip()
+        max_sz = self.command_size_limit
+        if command == "MAIL" and self.extended_smtp:
+            max_sz += 36
+        if len(line) > max_sz:
+            self.push("500 Error: line too long")
+            return False
+        method = getattr(self, "smtp_" + command, None)
+        if not method:
+            self.push('500 Error: command "%s" not recognized' % command)
+            return False
+        method(arg)
+        return command == "QUIT"
+
+    def handle_data(self) -> None:
         line = b"".join(self.received_lines)
         self.received_lines = []
-        if self.smtp_state == self.COMMAND:
-            sz, self.num_bytes = self.num_bytes, 0
-            if not line:
-                self.push("500 Error: bad syntax")
-                return False
-            line_str = str(line, "utf-8")
-            i = line_str.find(" ")
-            if i < 0:
-                command = line_str.upper()
-                arg = None
-            else:
-                command = line_str[:i].upper()
-                arg = line_str[i + 1 :].strip()
-            max_sz = self.command_size_limit
-            if command == "MAIL" and self.extended_smtp:
-                max_sz += 36
-            if sz > max_sz:
-                self.push("500 Error: line too long")
-                return False
-            method = getattr(self, "smtp_" + command, None)
-            if not method:
-                self.push('500 Error: command "%s" not recognized' % command)
-                return False
-            method(arg)
-            return command == "QUIT"
-        else:
-            if self.num_bytes > self.data_size_limit:
-                self.push("552 Error: Too much mail data")
-                self.num_bytes = 0
-                return False
-            # Remove extraneous carriage returns and de-transparency according
-            # to RFC 5321, Section 4.5.2.
-            data = []
-            for text in line.split(self._linesep):
-                if text and text[0] == self._dotsep:
-                    data.append(text[1:])
-                else:
-                    data.append(text)
-            self.received_data = b"\n".join(data)
-            assert isinstance(self.server, SMTPServer)
-            assert self.mailfrom
-            status = self.server.process_message(
-                self.peer, self.mailfrom, self.rcpttos, self.received_data
-            )
-            self._set_post_data_state()
-            if not status:
-                self.push("250 OK")
-            else:
-                self.push(status)
 
-        return False
+        if self.num_bytes > self.data_size_limit:
+            self.push("552 Error: Too much mail data")
+            self.num_bytes = 0
+            return
+        # Remove extraneous carriage returns and de-transparency according
+        # to RFC 5321, Section 4.5.2.
+        data = []
+        for text in line.split(self._linesep):
+            if text and text[0] == self._dotsep:
+                data.append(text[1:])
+            else:
+                data.append(text)
+        self.received_data = b"\n".join(data)
+        assert isinstance(self.server, SMTPServer)
+        assert self.mailfrom
+        status = self.server.process_message(
+            self.peer, self.mailfrom, self.rcpttos, self.received_data
+        )
+        self._set_post_data_state()
+        if not status:
+            self.push("250 OK")
+        else:
+            self.push(status)
 
     # SMTP and ESMTP commands
     def smtp_HELO(self, arg: str | None) -> None:
