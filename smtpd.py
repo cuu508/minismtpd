@@ -25,6 +25,7 @@ __version__ = "Python SMTP proxy version 0.3"
 
 
 DATA_SIZE_DEFAULT = 33554432
+DATA_TERMINATOR = b"\r\n.\r\n"
 
 
 class SMTPChannel(socketserver.StreamRequestHandler):
@@ -51,27 +52,6 @@ class SMTPChannel(socketserver.StreamRequestHandler):
             if err.errno != errno.ENOTCONN:
                 raise
 
-    def handle(self) -> None:
-        self.push("220 %s %s" % (self.fqdn, __version__))
-        prev_line = None
-        for line in self.rfile:
-            if self.smtp_state == self.COMMAND:
-                line = line.rstrip(b"\r\n")
-                if self.handle_command(line):
-                    # True means the client has sent QUIT
-                    break
-            elif self.smtp_state == self.DATA:
-                if prev_line is not None:
-                    if line == b".\r\n":
-                        # found the <CR><LF>.<CR><LF> sequence,
-                        # collect previous line sans its trailing \r\n
-                        self.collect_incoming_data(prev_line.rstrip(self._linesep))
-                        self.handle_data()
-                    else:
-                        # collect the full previous line
-                        self.collect_incoming_data(prev_line)
-                prev_line = line
-
     def _set_post_data_state(self) -> None:
         """Reset state variables to their post-DATA state."""
         self.smtp_state = self.COMMAND
@@ -84,21 +64,35 @@ class SMTPChannel(socketserver.StreamRequestHandler):
         """Reset all state variables except the greeting."""
         self._set_post_data_state()
         self.received_data = b""
-        self.received_lines: list[bytes] = []
 
     def push(self, msg: str) -> None:
         self.wfile.write(
             bytes(msg + "\r\n", "utf-8" if self.require_SMTPUTF8 else "ascii")
         )
 
-    def collect_incoming_data(self, data: bytes) -> None:
-        if self.smtp_state == self.DATA:
-            limit = self.data_size_limit
-            if limit and self.num_bytes > limit:
-                return
-
-        self.num_bytes += len(data)
-        self.received_lines.append(data)
+    def handle(self) -> None:
+        self.push("220 %s %s" % (self.fqdn, __version__))
+        data = bytearray()
+        # Data terminator is not part of data, subtract its length from the
+        # calculated data size:
+        data_size = -len(DATA_TERMINATOR)
+        for line in self.rfile:
+            if self.smtp_state == self.COMMAND:
+                line = line.rstrip(b"\r\n")
+                if self.handle_command(line):
+                    # handle_command returns True when the client has sent QUIT
+                    break
+            elif self.smtp_state == self.DATA:
+                data += line
+                data_size += len(line)
+                if data_size > self.data_size_limit:
+                    # Over the limit: start throwing away received
+                    # data sans the last few characters (so we can detect the
+                    # termination sequence).
+                    data = data[-len(DATA_TERMINATOR) :]
+                if data.endswith(DATA_TERMINATOR):
+                    data_bytes = bytes(data.removesuffix(DATA_TERMINATOR))
+                    self.handle_data(data_bytes, data_size)
 
     def handle_command(self, line: bytes) -> bool:
         if not line:
@@ -125,11 +119,8 @@ class SMTPChannel(socketserver.StreamRequestHandler):
         method(arg)
         return command == "QUIT"
 
-    def handle_data(self) -> None:
-        line = b"".join(self.received_lines)
-        self.received_lines = []
-
-        if self.num_bytes > self.data_size_limit:
+    def handle_data(self, line: bytes, num_bytes: int) -> None:
+        if num_bytes > self.data_size_limit:
             self.push("552 Error: Too much mail data")
             self.num_bytes = 0
             return
