@@ -51,15 +51,16 @@
 # agrees to be bound by the terms and conditions of this License
 # Agreement.
 
-import smtpd
 import socket
 import unittest
 from unittest.mock import Mock
 
+from minismtpd import SMTPChannel, SMTPServer
+
 MessageTuple = tuple[tuple[str, int], str, list[str], bytes]
 
 
-class DummyServer(smtpd.SMTPServer):
+class DummyServer(SMTPServer):
     def __init__(self) -> None:
         self.messages: list[MessageTuple] = []
 
@@ -72,7 +73,7 @@ class DummyServer(smtpd.SMTPServer):
         return None
 
 
-class RiggedSMTPChannel(smtpd.SMTPChannel):
+class RiggedSMTPChannel(SMTPChannel):
     def __init__(self) -> None:
         self.request = Mock()
         self.request.getpeername.return_value = ("peer-address", 1234)
