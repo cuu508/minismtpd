@@ -1,5 +1,7 @@
 # minismtpd
 
+[![Tests](https://github.com/cuu508/minismtpd/actions/workflows/test.yaml/badge.svg)](https://github.com/cuu508/minismtpd/actions/workflows/test.yaml)
+
 ## License
 
 This library is based on now-discontinued `smtpd` module from the Python 3.11 standard
@@ -18,7 +20,13 @@ The modifications and new code is licensed under the BSD-3-Clause license.
 * Removed the the `enable_SMTPUTF8` constructor argument (always enabled)
 * Added type annotations
 
-## Usage Example
+## Install
+
+```
+pip install minismtpd
+```
+
+## Use
 
 ```python
 from minismtpd import SMTPServer
