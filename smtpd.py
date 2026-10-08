@@ -343,6 +343,12 @@ class SMTPChannel(socketserver.StreamRequestHandler):
         if len(params.keys()) > 0:
             self.push("555 RCPT TO parameters not recognized or not implemented")
             return
+
+        status = self.server.process_rcpt(address)
+        if status:
+            self.push(status)
+            return
+
         self.rcpttos.append(address)
         self.push("250 OK")
 
@@ -374,6 +380,13 @@ class SMTPChannel(socketserver.StreamRequestHandler):
 class SMTPServer(socketserver.TCPServer):
     def __init__(self, server_address: tuple[str, int]) -> None:
         super().__init__(server_address, SMTPChannel)
+
+    def process_rcpt(self, rcptto: str) -> str | None:
+        """Override to accept/reject recipients.
+
+        Return None  to accept, return a desired response string to reject.
+        """
+        return
 
     def process_message(
         self, peer: tuple[str, int], mailfrom: str, rcpttos: list[str], data: bytes
