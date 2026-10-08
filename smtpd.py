@@ -390,7 +390,7 @@ class SMTPServer(socketserver.TCPServer):
         super().__init__(server_address, SMTPChannel)
 
     def process_message(
-        self, peer: tuple[str, str], mailfrom: str, rcpttos: list[str], data: bytes
+        self, peer: tuple[str, int], mailfrom: str, rcpttos: list[str], data: bytes
     ) -> str | None:
         """Override this abstract method to handle messages from the client.
 
