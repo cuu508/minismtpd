@@ -38,7 +38,6 @@ class SMTPChannel(socketserver.StreamRequestHandler):
         super().setup()
 
         self.data_size_limit = DATA_SIZE_DEFAULT
-        self._linesep = b"\r\n"
         self._dotsep = ord(b".")
         self._set_rset_state()
         self.seen_greeting = ""
@@ -78,7 +77,7 @@ class SMTPChannel(socketserver.StreamRequestHandler):
         data_size = -len(DATA_TERMINATOR)
         for line in self.rfile:
             if self.smtp_state == self.COMMAND:
-                line = line.rstrip(b"\r\n")
+                line = line.removesuffix(b"\r\n")
                 if self.handle_command(line):
                     # handle_command returns True when the client has sent QUIT
                     break
@@ -127,7 +126,7 @@ class SMTPChannel(socketserver.StreamRequestHandler):
         # Remove extraneous carriage returns and de-transparency according
         # to RFC 5321, Section 4.5.2.
         data = []
-        for text in line.split(self._linesep):
+        for text in line.split(b"\r\n"):
             if text and text[0] == self._dotsep:
                 data.append(text[1:])
             else:
