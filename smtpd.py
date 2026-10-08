@@ -344,6 +344,7 @@ class SMTPChannel(socketserver.StreamRequestHandler):
             self.push("555 RCPT TO parameters not recognized or not implemented")
             return
 
+        assert isinstance(self.server, SMTPServer)
         status = self.server.process_rcpt(address)
         if status:
             self.push(status)
@@ -386,7 +387,7 @@ class SMTPServer(socketserver.TCPServer):
 
         Return None  to accept, return a desired response string to reject.
         """
-        return
+        return None
 
     def process_message(
         self, peer: tuple[str, int], mailfrom: str, rcpttos: list[str], data: bytes
