@@ -1,20 +1,20 @@
-# This file implements the minimal SMTP protocol as defined in RFC 5321.  It
-# a base class for the SMTP server (SMTPServer). Use it by subclassing
-# and implementing the "process_message" method.
-#
 # This is a modified version of CPython's smtpd module.
 # The original version:
 # https://raw.githubusercontent.com/python/cpython/refs/heads/3.11/Lib/smtpd.py
-# Its license:
+# Its license of the original version:
 # https://raw.githubusercontent.com/python/cpython/refs/heads/3.11/LICENSE
 # Original author: Barry Warsaw <barry@python.org>
 #
 # Modifications:
 # * Updated to run using socketserver instead of asyncore and asynchat
-# * Removed various bits we don't need: CLI, DebuggingServer and PureProxy
+# * Removed various bits we don't need: CLI, DebuggingServer, PureProxy,
+#   UTF8 decoding
 # * SMTPUTF8 is always enabled
+#
+# This file implements the minimal SMTP protocol as defined in RFC 5321.  It
+# a base class for the SMTP server (SMTPServer). Use it by subclassing
+# and implementing the "process_message" method.
 
-import collections
 import errno
 import socket
 import socketserver
@@ -32,16 +32,8 @@ class SMTPChannel(socketserver.StreamRequestHandler):
     DATA = 1
 
     command_size_limit = 512
-    command_size_limits = collections.defaultdict(lambda x=command_size_limit: x)
 
-    @property
-    def max_command_size_limit(self):
-        try:
-            return max(self.command_size_limits.values())
-        except ValueError:
-            return self.command_size_limit
-
-    def setup(self):
+    def setup(self) -> None:
         super().setup()
 
         self.data_size_limit = DATA_SIZE_DEFAULT
@@ -50,7 +42,6 @@ class SMTPChannel(socketserver.StreamRequestHandler):
         self._set_rset_state()
         self.seen_greeting = ""
         self.extended_smtp = False
-        self.command_size_limits.clear()
         self.fqdn = socket.getfqdn()
         try:
             self.peer = self.request.getpeername()
@@ -59,9 +50,8 @@ class SMTPChannel(socketserver.StreamRequestHandler):
             # before we can get the peername
             if err.errno != errno.ENOTCONN:
                 raise
-            return
 
-    def handle(self):
+    def handle(self) -> None:
         self.push("220 %s %s" % (self.fqdn, __version__))
         prev_line = None
         for line in self.rfile:
@@ -84,73 +74,67 @@ class SMTPChannel(socketserver.StreamRequestHandler):
                         self.collect_incoming_data(prev_line)
                 prev_line = line
 
-    def _set_post_data_state(self):
+    def _set_post_data_state(self) -> None:
         """Reset state variables to their post-DATA state."""
         self.smtp_state = self.COMMAND
-        self.mailfrom = None
-        self.rcpttos = []
+        self.mailfrom: str | None = None
+        self.rcpttos: list[str] = []
         self.require_SMTPUTF8 = False
         self.num_bytes = 0
 
-    def _set_rset_state(self):
+    def _set_rset_state(self) -> None:
         """Reset all state variables except the greeting."""
         self._set_post_data_state()
-        self.received_data = ""
-        self.received_lines = []
+        self.received_data = b""
+        self.received_lines: list[bytes] = []
 
-    def push(self, msg):
+    def push(self, msg: str) -> None:
         self.wfile.write(
             bytes(msg + "\r\n", "utf-8" if self.require_SMTPUTF8 else "ascii")
         )
 
-    def collect_incoming_data(self, data):
-        limit = None
-        if self.smtp_state == self.COMMAND:
-            limit = self.max_command_size_limit
-        elif self.smtp_state == self.DATA:
+    def collect_incoming_data(self, data: bytes) -> None:
+        if self.smtp_state == self.DATA:
             limit = self.data_size_limit
-        if limit and self.num_bytes > limit:
-            return
-        elif limit:
-            self.num_bytes += len(data)
+            if limit and self.num_bytes > limit:
+                return
 
+        self.num_bytes += len(data)
         self.received_lines.append(data)
 
-    def found_terminator(self):
+    def found_terminator(self) -> bool:
         line = b"".join(self.received_lines)
         self.received_lines = []
         if self.smtp_state == self.COMMAND:
             sz, self.num_bytes = self.num_bytes, 0
             if not line:
                 self.push("500 Error: bad syntax")
-                return
-            line = str(line, "utf-8")
-            i = line.find(" ")
+                return False
+            line_str = str(line, "utf-8")
+            i = line_str.find(" ")
             if i < 0:
-                command = line.upper()
+                command = line_str.upper()
                 arg = None
             else:
-                command = line[:i].upper()
-                arg = line[i + 1 :].strip()
-            max_sz = (
-                self.command_size_limits[command]
-                if self.extended_smtp
-                else self.command_size_limit
-            )
+                command = line_str[:i].upper()
+                arg = line_str[i + 1 :].strip()
+            max_sz = self.command_size_limit
+            if command == "MAIL" and self.extended_smtp:
+                max_sz += 36
             if sz > max_sz:
                 self.push("500 Error: line too long")
-                return
+                return False
             method = getattr(self, "smtp_" + command, None)
             if not method:
                 self.push('500 Error: command "%s" not recognized' % command)
-                return
+                return False
             method(arg)
             return command == "QUIT"
         else:
             if self.num_bytes > self.data_size_limit:
                 self.push("552 Error: Too much mail data")
                 self.num_bytes = 0
-                return
+                return False
             # Remove extraneous carriage returns and de-transparency according
             # to RFC 5321, Section 4.5.2.
             data = []
@@ -160,21 +144,21 @@ class SMTPChannel(socketserver.StreamRequestHandler):
                 else:
                     data.append(text)
             self.received_data = b"\n".join(data)
-            args = (self.peer, self.mailfrom, self.rcpttos, self.received_data)
-            kwargs = {}
-            kwargs = {
-                "mail_options": self.mail_options,
-                "rcpt_options": self.rcpt_options,
-            }
-            status = self.server.process_message(*args, **kwargs)
+            assert isinstance(self.server, SMTPServer)
+            assert self.mailfrom
+            status = self.server.process_message(
+                self.peer, self.mailfrom, self.rcpttos, self.received_data
+            )
             self._set_post_data_state()
             if not status:
                 self.push("250 OK")
             else:
                 self.push(status)
 
+        return False
+
     # SMTP and ESMTP commands
-    def smtp_HELO(self, arg):
+    def smtp_HELO(self, arg: str | None) -> None:
         if not arg:
             self.push("501 Syntax: HELO hostname")
             return
@@ -186,7 +170,7 @@ class SMTPChannel(socketserver.StreamRequestHandler):
         self.seen_greeting = arg
         self.push("250 %s" % self.fqdn)
 
-    def smtp_EHLO(self, arg):
+    def smtp_EHLO(self, arg: str | None) -> None:
         if not arg:
             self.push("501 Syntax: EHLO hostname")
             return
@@ -199,40 +183,37 @@ class SMTPChannel(socketserver.StreamRequestHandler):
         self.extended_smtp = True
         self.push("250-%s" % self.fqdn)
         self.push("250-SIZE %s" % self.data_size_limit)
-        self.command_size_limits["MAIL"] += 26
         self.push("250-8BITMIME")
         self.push("250-SMTPUTF8")
-        self.command_size_limits["MAIL"] += 10
         self.push("250 HELP")
 
-    def smtp_NOOP(self, arg):
+    def smtp_NOOP(self, arg: str | None) -> None:
         if arg:
             self.push("501 Syntax: NOOP")
         else:
             self.push("250 OK")
 
-    def smtp_QUIT(self, arg):
+    def smtp_QUIT(self, arg: str | None) -> None:
         # args is ignored
         self.push("221 Bye")
 
-    def _strip_command_keyword(self, keyword, arg):
+    def _strip_command_keyword(self, keyword: str, arg: str) -> str:
         keylen = len(keyword)
         if arg[:keylen].upper() == keyword:
             return arg[keylen:].strip()
         return ""
 
-    def _getaddr(self, arg):
+    def _getaddr(self, arg: str) -> tuple[str, str]:
         if not arg:
             return "", ""
         if arg.lstrip().startswith("<"):
-            address, rest = get_angle_addr(arg)
+            angle_addr, rest = get_angle_addr(arg)
+            return angle_addr.addr_spec, rest
         else:
-            address, rest = get_addr_spec(arg)
-        if not address:
-            return address, rest
-        return address.addr_spec, rest
+            addr_spec, rest = get_addr_spec(arg)
+            return addr_spec.addr_spec, rest
 
-    def _getparams(self, params):
+    def _getparams(self, params: list[str]) -> dict[str, str | bool] | None:
         # Return params as dictionary. Return None if not all parameters
         # appear to be syntactically valid according to RFC 1869.
         result = {}
@@ -243,7 +224,7 @@ class SMTPChannel(socketserver.StreamRequestHandler):
             result[param] = value if eq else True
         return result
 
-    def smtp_HELP(self, arg):
+    def smtp_HELP(self, arg: str | None) -> None:
         if arg:
             extended = " [SP <mail-parameters>]"
             lc_arg = arg.upper()
@@ -281,7 +262,7 @@ class SMTPChannel(socketserver.StreamRequestHandler):
                 "250 Supported commands: EHLO HELO MAIL RCPT DATA RSET NOOP QUIT VRFY"
             )
 
-    def smtp_VRFY(self, arg):
+    def smtp_VRFY(self, arg: str | None) -> None:
         if arg:
             address, params = self._getaddr(arg)
             if address:
@@ -293,7 +274,7 @@ class SMTPChannel(socketserver.StreamRequestHandler):
         else:
             self.push("501 Syntax: VRFY <address>")
 
-    def smtp_MAIL(self, arg):
+    def smtp_MAIL(self, arg: str | None) -> None:
         if not self.seen_greeting:
             self.push("503 Error: send HELO first")
             return
@@ -304,18 +285,18 @@ class SMTPChannel(socketserver.StreamRequestHandler):
             self.push(syntaxerr)
             return
         arg = self._strip_command_keyword("FROM:", arg)
-        address, params = self._getaddr(arg)
+        address, rest = self._getaddr(arg)
         if not address:
             self.push(syntaxerr)
             return
-        if not self.extended_smtp and params:
+        if not self.extended_smtp and rest:
             self.push(syntaxerr)
             return
         if self.mailfrom:
             self.push("503 Error: nested MAIL command")
             return
-        self.mail_options = params.upper().split()
-        params = self._getparams(self.mail_options)
+        mail_options = rest.upper().split()
+        params = self._getparams(mail_options)
         if params is None:
             self.push(syntaxerr)
             return
@@ -331,6 +312,9 @@ class SMTPChannel(socketserver.StreamRequestHandler):
             return
         size = params.pop("SIZE", None)
         if size:
+            if not isinstance(size, str):
+                self.push("501 Error: SIZE has no argument")
+                return
             if not size.isdigit():
                 self.push(syntaxerr)
                 return
@@ -343,7 +327,7 @@ class SMTPChannel(socketserver.StreamRequestHandler):
         self.mailfrom = address
         self.push("250 OK")
 
-    def smtp_RCPT(self, arg):
+    def smtp_RCPT(self, arg: str | None) -> None:
         if not self.seen_greeting:
             self.push("503 Error: send HELO first")
             return
@@ -357,15 +341,15 @@ class SMTPChannel(socketserver.StreamRequestHandler):
             self.push(syntaxerr)
             return
         arg = self._strip_command_keyword("TO:", arg)
-        address, params = self._getaddr(arg)
+        address, rest = self._getaddr(arg)
         if not address:
             self.push(syntaxerr)
             return
-        if not self.extended_smtp and params:
+        if not self.extended_smtp and rest:
             self.push(syntaxerr)
             return
-        self.rcpt_options = params.upper().split()
-        params = self._getparams(self.rcpt_options)
+        rcpt_options = rest.upper().split()
+        params = self._getparams(rcpt_options)
         if params is None:
             self.push(syntaxerr)
             return
@@ -376,14 +360,14 @@ class SMTPChannel(socketserver.StreamRequestHandler):
         self.rcpttos.append(address)
         self.push("250 OK")
 
-    def smtp_RSET(self, arg):
+    def smtp_RSET(self, arg: str | None) -> None:
         if arg:
             self.push("501 Syntax: RSET")
             return
         self._set_rset_state()
         self.push("250 OK")
 
-    def smtp_DATA(self, arg):
+    def smtp_DATA(self, arg: str | None) -> None:
         if not self.seen_greeting:
             self.push("503 Error: send HELO first")
             return
@@ -397,15 +381,17 @@ class SMTPChannel(socketserver.StreamRequestHandler):
         self.push("354 End data with <CR><LF>.<CR><LF>")
 
     # Commands that have not been implemented
-    def smtp_EXPN(self, arg):
+    def smtp_EXPN(self, arg: str | None) -> None:
         self.push("502 EXPN not implemented")
 
 
 class SMTPServer(socketserver.TCPServer):
-    def __init__(self, server_address):
+    def __init__(self, server_address: tuple[str, int]) -> None:
         super().__init__(server_address, SMTPChannel)
 
-    def process_message(self, peer, mailfrom, rcpttos, data, **kwargs):
+    def process_message(
+        self, peer: tuple[str, str], mailfrom: str, rcpttos: list[str], data: bytes
+    ) -> str | None:
         """Override this abstract method to handle messages from the client.
 
         peer is a tuple containing (ipaddr, port) of the client that made the
@@ -422,14 +408,6 @@ class SMTPServer(socketserver.TCPServer):
         according to RFC 821, Section 4.5.2.  In other words, a line
         containing a `.' followed by other text has had the leading dot
         removed.
-
-        kwargs is a dictionary containing additional information.  It is
-        empty if decode_data=True was given as init parameter, otherwise
-        it will contain the following keys:
-            'mail_options': list of parameters to the mail command.  All
-                            elements are uppercase strings.  Example:
-                            ['BODY=8BITMIME', 'SMTPUTF8'].
-            'rcpt_options': same, for the rcpt command.
 
         This function should return None for a normal `250 Ok' response;
         otherwise, it should return the desired response string in RFC 821

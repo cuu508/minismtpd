@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import Mock
 
 
-class DummyServer:
+class DummyServer(smtpd.SMTPServer):
     def __init__(self):
         self.messages = []
 
@@ -61,6 +61,12 @@ class TestMailOptionParsing(unittest.TestCase):
             b"MAIL from: <foo@example.com> size=20 body=8bitmime smtputf8"
         )
         self.assertEqual(channel.last, b"250 OK\r\n")
+
+    def test_size_with_no_value(self):
+        channel = RiggedSMTPChannel()
+        channel.write_line(b"EHLO example")
+        channel.write_line(b"MAIL from: <foo@example.com> size")
+        self.assertEqual(channel.last, b"501 Error: SIZE has no argument\r\n")
 
 
 class SMTPDChannelTest(unittest.TestCase):
