@@ -62,7 +62,6 @@ import errno
 import socket
 import socketserver
 from email._header_value_parser import get_addr_spec, get_angle_addr
-from email.errors import HeaderParseError
 
 __all__ = ["SMTPServer"]
 __version__ = "minismtpd 0.1"
@@ -237,11 +236,17 @@ class SMTPChannel(socketserver.StreamRequestHandler):
         if not arg:
             return "", ""
         if arg.lstrip().startswith("<"):
-            angle_addr, rest = get_angle_addr(arg)
-            return angle_addr.addr_spec, rest
+            try:
+                angle_addr, rest = get_angle_addr(arg)
+                return angle_addr.addr_spec, rest
+            except:
+                return "", ""
         else:
-            addr_spec, rest = get_addr_spec(arg)
-            return addr_spec.addr_spec, rest
+            try:
+                addr_spec, rest = get_addr_spec(arg)
+                return addr_spec.addr_spec, rest
+            except:
+                return "", ""
 
     def _getparams(self, params: list[str]) -> dict[str, str | bool] | None:
         # Return params as dictionary. Return None if not all parameters
@@ -294,11 +299,7 @@ class SMTPChannel(socketserver.StreamRequestHandler):
 
     def smtp_VRFY(self, arg: str | None) -> None:
         if arg:
-            try:
-                address, _params = self._getaddr(arg)
-            except HeaderParseError:
-                self.push("501 Invalid address")
-                return
+            address, _params = self._getaddr(arg)
             if address:
                 self.push(
                     "252 Cannot VRFY user, but will accept message and attempt delivery"
@@ -319,11 +320,7 @@ class SMTPChannel(socketserver.StreamRequestHandler):
             self.push(syntaxerr)
             return
         arg = self._strip_command_keyword("FROM:", arg)
-        try:
-            address, rest = self._getaddr(arg)
-        except HeaderParseError:
-            self.push("501 Invalid address")
-            return
+        address, rest = self._getaddr(arg)
         if not address:
             self.push(syntaxerr)
             return
@@ -379,11 +376,7 @@ class SMTPChannel(socketserver.StreamRequestHandler):
             self.push(syntaxerr)
             return
         arg = self._strip_command_keyword("TO:", arg)
-        try:
-            address, rest = self._getaddr(arg)
-        except HeaderParseError:
-            self.push("501 Invalid address")
-            return
+        address, rest = self._getaddr(arg)
         if not address:
             self.push(syntaxerr)
             return
