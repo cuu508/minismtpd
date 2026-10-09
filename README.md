@@ -16,8 +16,8 @@ The modifications and new code is licensed under the BSD-3-Clause license.
   instead of `asyncore` and `asynchat`
 * Removed CLI
 * Removed DebuggingProxy and PureProxy classes
-* Removed the the `decode_data` constructor argument (always disabled)
-* Removed the the `enable_SMTPUTF8` constructor argument (always enabled)
+* Removed the `decode_data` constructor argument (always disabled)
+* Removed the `enable_SMTPUTF8` constructor argument (always enabled)
 * Added type annotations
 
 ## Install
