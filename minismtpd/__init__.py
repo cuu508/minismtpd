@@ -62,6 +62,7 @@ import errno
 import socket
 import socketserver
 from email._header_value_parser import get_addr_spec, get_angle_addr
+from email.errors import HeaderParseError
 
 __all__ = ["SMTPServer"]
 __version__ = "minismtpd 0.1"
@@ -293,7 +294,11 @@ class SMTPChannel(socketserver.StreamRequestHandler):
 
     def smtp_VRFY(self, arg: str | None) -> None:
         if arg:
-            address, _params = self._getaddr(arg)
+            try:
+                address, _params = self._getaddr(arg)
+            except HeaderParseError:
+                self.push("501 Invalid address")
+                return
             if address:
                 self.push(
                     "252 Cannot VRFY user, but will accept message and attempt delivery"
@@ -314,7 +319,11 @@ class SMTPChannel(socketserver.StreamRequestHandler):
             self.push(syntaxerr)
             return
         arg = self._strip_command_keyword("FROM:", arg)
-        address, rest = self._getaddr(arg)
+        try:
+            address, rest = self._getaddr(arg)
+        except HeaderParseError:
+            self.push("501 Invalid address")
+            return
         if not address:
             self.push(syntaxerr)
             return
@@ -370,7 +379,11 @@ class SMTPChannel(socketserver.StreamRequestHandler):
             self.push(syntaxerr)
             return
         arg = self._strip_command_keyword("TO:", arg)
-        address, rest = self._getaddr(arg)
+        try:
+            address, rest = self._getaddr(arg)
+        except HeaderParseError:
+            self.push("501 Invalid address")
+            return
         if not address:
             self.push(syntaxerr)
             return

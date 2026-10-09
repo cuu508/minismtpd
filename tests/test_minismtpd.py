@@ -329,6 +329,11 @@ class SMTPDChannelTest(unittest.TestCase):
         self.write_line(b"MAIL from:")
         self.assertEqual(self.channel.last, b"501 Syntax: MAIL FROM: <address>\r\n")
 
+    def test_MAIL_invalid_address(self) -> None:
+        self.write_line(b"HELO example")
+        self.write_line(b"MAIL from:[$")
+        self.assertEqual(self.channel.last, b"501 Invalid address\r\n")
+
     def test_MAIL_chevrons(self) -> None:
         self.write_line(b"HELO example")
         self.write_line(b"MAIL from:<eggs@example>")
@@ -381,6 +386,10 @@ class SMTPDChannelTest(unittest.TestCase):
         self.write_line(b"VRFY")
         self.assertEqual(self.channel.last, b"501 Syntax: VRFY <address>\r\n")
 
+    def test_VRFY_invalid_address(self) -> None:
+        self.write_line(b"VRFY [$")
+        self.assertEqual(self.channel.last, b"501 Invalid address\r\n")
+
     def test_EXPN_not_implemented(self) -> None:
         self.write_line(b"EXPN")
         self.assertEqual(self.channel.last, b"502 EXPN not implemented\r\n")
@@ -419,6 +428,12 @@ class SMTPDChannelTest(unittest.TestCase):
     def test_no_HELO_RCPT(self) -> None:
         self.write_line(b"RCPT to eggs@example")
         self.assertEqual(self.channel.last, b"503 Error: send HELO first\r\n")
+
+    def test_RCPT_invalid_address(self) -> None:
+        self.write_line(b"HELO example")
+        self.write_line(b"MAIL From: eggs@example")
+        self.write_line(b"RCPT TO:[$")
+        self.assertEqual(self.channel.last, b"501 Invalid address\r\n")
 
     def test_data_dialog(self) -> None:
         self.write_line(b"HELO example")
