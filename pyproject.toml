@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "minismtpd"
-version = "0.1"
+version = "0.2"
 authors = [{ name = "Pēteris Caune", email = "cuu508@monkeyseemonkeydo.lv" }]
 license = "BSD-3-Clause AND PSF-2.0"
 description = "A minimal SMTP server"
@@ -24,6 +24,7 @@ classifiers = [
 [project.urls]
 Repository = "https://github.com/cuu508/minismtpd.git"
 Issues = "https://github.com/cuu508/minismtpd/issues"
+Changelog = "https://github.com/cuu508/minismtpd/blob/main/CHANGELOG.md"
 
 [tool.setuptools]
 packages = ["minismtpd"]
