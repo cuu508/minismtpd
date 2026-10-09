@@ -335,7 +335,7 @@ class SMTPDChannelTest(unittest.TestCase):
         for sample in samples:
             self.write_line(b"MAIL from:" + sample)
             self.assertEqual(self.channel.last, b"501 Syntax: MAIL FROM: <address>\r\n")
-            self.channel.last = None
+            self.channel.last = b""
 
     def test_MAIL_chevrons(self) -> None:
         self.write_line(b"HELO example")
