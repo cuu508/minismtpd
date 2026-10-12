@@ -1,7 +1,7 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
-## 0.3-dev - unreleased
+## 0.3 - 2026-10-12
 - Fix crash when client sends invalid UTF8
 - Simplify server responses so that server always responds with ASCII
 
