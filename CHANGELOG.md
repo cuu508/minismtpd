@@ -2,7 +2,8 @@
 All notable changes to this project will be documented in this file.
 
 ## 0.3-dev - unreleased
-- Add graceful handling of invalid UTF8 from the client
+- Fix crash when client sends invalid UTF8
+- Simplify server responses so that server always responds with ASCII
 
 ## 0.2 - 2026-10-09
 - Add py.typed marker

@@ -73,6 +73,11 @@ class DummyServer(SMTPServer):
         return None
 
 
+class DummyFile:
+    def write(self, data: bytes) -> None:
+        self.last = data
+
+
 class RiggedSMTPChannel(SMTPChannel):
     def __init__(self) -> None:
         self.request = Mock()
@@ -82,15 +87,18 @@ class RiggedSMTPChannel(SMTPChannel):
         # It is OK because SMTPChannel only accesses it by iterating over it,
         # and both BufferedIOBase and list support interation, so they are comaptible.
         self.rfile: list[bytes] = []  # type:ignore
+        self.wfile = DummyFile()  # type:ignore
         self.server = DummyServer()
-
-    def push(self, msg: str) -> None:
-        self.last = (msg + "\r\n").encode()
 
     def write_line(self, data: bytes) -> None:
         data_lines = [line + b"\r\n" for line in data.split(b"\r\n")]
         self.rfile = data_lines
         self.handle()
+
+    @property
+    def last(self) -> bytes:
+        assert isinstance(self.wfile, DummyFile)
+        return self.wfile.last
 
     def messages(self) -> list[MessageTuple]:
         assert isinstance(self.server, DummyServer)
@@ -339,7 +347,7 @@ class SMTPDChannelTest(unittest.TestCase):
         for sample in samples:
             self.write_line(b"MAIL from:" + sample)
             self.assertEqual(self.channel.last, b"501 Syntax: MAIL FROM: <address>\r\n")
-            self.channel.last = b""
+            self.write_line(b"NOOP")  # this just resets self.channel.last
 
     def test_MAIL_chevrons(self) -> None:
         self.write_line(b"HELO example")
@@ -395,7 +403,11 @@ class SMTPDChannelTest(unittest.TestCase):
 
     def test_VRFY_invalid_address(self) -> None:
         self.write_line(b"VRFY [$")
-        self.assertEqual(self.channel.last, b"502 Could not VRFY [$\r\n")
+        self.assertEqual(self.channel.last, b"502 Could not VRFY user\r\n")
+
+    def test_VRFY_invalid_address_with_utf8(self) -> None:
+        self.write_line(b"VRFY [\xc4\x81")
+        self.assertEqual(self.channel.last, b"502 Could not VRFY user\r\n")
 
     def test_EXPN_not_implemented(self) -> None:
         self.write_line(b"EXPN")
@@ -538,10 +550,11 @@ class SMTPDChannelTest(unittest.TestCase):
 
     def test_unknown_command(self) -> None:
         self.write_line(b"UNKNOWN_CMD")
-        self.assertEqual(
-            self.channel.last,
-            b'500 Error: command "UNKNOWN_CMD" not ' + b"recognized\r\n",
-        )
+        self.assertEqual(self.channel.last, b"500 Error: command not recognized\r\n")
+
+    def test_unknown_command_with_utf8(self) -> None:
+        self.write_line(b"\xc4\x81")
+        self.assertEqual(self.channel.last, b"500 Error: command not recognized\r\n")
 
 
 if __name__ == "__main__":

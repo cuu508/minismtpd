@@ -99,7 +99,6 @@ class SMTPChannel(socketserver.StreamRequestHandler):
         self.smtp_state = self.COMMAND
         self.mailfrom: str | None = None
         self.rcpttos: list[str] = []
-        self.require_SMTPUTF8 = False
         self.num_bytes = 0
 
     def _set_rset_state(self) -> None:
@@ -108,9 +107,7 @@ class SMTPChannel(socketserver.StreamRequestHandler):
         self.received_data = b""
 
     def push(self, msg: str) -> None:
-        self.wfile.write(
-            bytes(msg + "\r\n", "utf-8" if self.require_SMTPUTF8 else "ascii")
-        )
+        self.wfile.write(bytes(msg + "\r\n", "ascii"))
 
     def handle(self) -> None:
         self.push(f"220 {self.fqdn} {__version__}")
@@ -161,7 +158,7 @@ class SMTPChannel(socketserver.StreamRequestHandler):
             return False
         method = getattr(self, "smtp_" + command, None)
         if not method:
-            self.push(f'500 Error: command "{command}" not recognized')
+            self.push("500 Error: command not recognized")
             return False
         method(arg)
         return command == "QUIT"
@@ -310,7 +307,7 @@ class SMTPChannel(socketserver.StreamRequestHandler):
                     "252 Cannot VRFY user, but will accept message and attempt delivery"
                 )
             else:
-                self.push(f"502 Could not VRFY {arg}")
+                self.push("502 Could not VRFY user")
         else:
             self.push("501 Syntax: VRFY <address>")
 
@@ -345,9 +342,7 @@ class SMTPChannel(socketserver.StreamRequestHandler):
             self.push("501 Error: BODY can only be one of 7BIT, 8BITMIME")
             return
         smtputf8 = params.pop("SMTPUTF8", False)
-        if smtputf8 is True:
-            self.require_SMTPUTF8 = True
-        elif smtputf8 is not False:
+        if not isinstance(smtputf8, bool):
             self.push("501 Error: SMTPUTF8 takes no arguments")
             return
         size = params.pop("SIZE", None)
