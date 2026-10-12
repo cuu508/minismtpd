@@ -160,6 +160,10 @@ class SMTPDChannelTest(unittest.TestCase):
         self.write_line(b"HELO example")
         self.assertEqual(self.channel.last, b"503 Duplicate HELO/EHLO\r\n")
 
+    def test_EHLO_bad_utf8(self) -> None:
+        self.write_line(b"EHLO \xed\xa0")
+        self.assertEqual(self.channel.last, b"501 Bad command\r\n")
+
     def test_HELO(self) -> None:
         name = socket.getfqdn()
         self.write_line(b"HELO example")

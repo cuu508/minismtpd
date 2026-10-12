@@ -140,7 +140,12 @@ class SMTPChannel(socketserver.StreamRequestHandler):
         if not line:
             self.push("500 Error: bad syntax")
             return False
-        line_str = str(line, "utf-8")
+        try:
+            line_str = str(line, "utf-8")
+        except UnicodeDecodeError:
+            self.push("501 Bad command")
+            return False
+
         i = line_str.find(" ")
         if i < 0:
             command = line_str.upper()
