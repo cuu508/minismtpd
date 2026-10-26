@@ -65,7 +65,7 @@ from email._header_value_parser import get_addr_spec, get_angle_addr
 from threading import Thread
 
 __all__ = ["SMTPServer"]
-__version__ = "minismtpd 0.4"
+__version__ = "minismtpd 0.5"
 
 
 DATA_SIZE_DEFAULT = 33554432
