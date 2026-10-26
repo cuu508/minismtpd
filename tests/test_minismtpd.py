@@ -53,6 +53,7 @@
 
 import socket
 import unittest
+from io import BytesIO
 from unittest.mock import Mock
 
 from minismtpd import SMTPChannel, SMTPServer
@@ -73,32 +74,24 @@ class DummyServer(SMTPServer):
         return None
 
 
-class DummyFile:
-    def write(self, data: bytes) -> None:
-        self.last = data
-
-
 class RiggedSMTPChannel(SMTPChannel):
     def __init__(self) -> None:
         self.request = Mock()
         self.request.getpeername.return_value = ("peer-address", 1234)
         self.setup()
-        # rfile is BufferedIOBase, but we are assigning a list to it.
-        # It is OK because SMTPChannel only accesses it by iterating over it,
-        # and both BufferedIOBase and list support interation, so they are comaptible.
-        self.rfile: list[bytes] = []  # type:ignore
-        self.wfile = DummyFile()  # type:ignore
+        self.wfile = BytesIO()
         self.server = DummyServer()
 
     def write_line(self, data: bytes) -> None:
-        data_lines = [line + b"\r\n" for line in data.split(b"\r\n")]
-        self.rfile = data_lines
+        self.rfile = BytesIO(data + b"\r\n")
         self.handle()
 
     @property
     def last(self) -> bytes:
-        assert isinstance(self.wfile, DummyFile)
-        return self.wfile.last
+        assert isinstance(self.wfile, BytesIO)
+        buffer = self.wfile.getvalue()
+        lines = buffer.splitlines(keepends=True)
+        return lines[-1]
 
     def messages(self) -> list[MessageTuple]:
         assert isinstance(self.server, DummyServer)

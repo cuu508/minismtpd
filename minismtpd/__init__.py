@@ -64,7 +64,7 @@ import socketserver
 from email._header_value_parser import get_addr_spec, get_angle_addr
 
 __all__ = ["SMTPServer"]
-__version__ = "minismtpd 0.1"
+__version__ = "minismtpd 0.4"
 
 
 DATA_SIZE_DEFAULT = 33554432
@@ -76,6 +76,10 @@ class SMTPChannel(socketserver.StreamRequestHandler):
     DATA = 1
 
     command_size_limit = 512
+    # Will close client connection after 5 minutes of no data from client
+    # (RFC 5321 4.5.3.2.7.)
+    # The timeout is applied in StreamRequestHandler.setup()
+    timeout = 60 * 5
 
     def setup(self) -> None:
         super().setup()
@@ -115,7 +119,15 @@ class SMTPChannel(socketserver.StreamRequestHandler):
         # Data terminator is not part of data, subtract its length from the
         # calculated data size:
         data_size = -len(DATA_TERMINATOR)
-        for line in self.rfile:
+        while True:
+            try:
+                line = self.rfile.readline()
+            except TimeoutError:
+                self.push("421 Closing transmission channel after timeout exceeded")
+                break
+            if line == b"":
+                break
+
             if self.smtp_state == self.COMMAND:
                 line = line.removesuffix(b"\r\n")
                 if self.handle_command(line):
@@ -429,6 +441,7 @@ class SMTPChannel(socketserver.StreamRequestHandler):
 
 class SMTPServer(socketserver.ThreadingTCPServer):
     def __init__(self, server_address: tuple[str, int]) -> None:
+        self.daemon_threads = True
         super().__init__(server_address, SMTPChannel)
 
     def process_rcpt(self, rcptto: str) -> str | None:
