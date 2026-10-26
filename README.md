@@ -29,6 +29,8 @@ pip install minismtpd
 ## Use
 
 ```python
+import signal
+
 from minismtpd import SMTPServer
 
 
@@ -41,6 +43,13 @@ class MyServer(SMTPServer):
 
 
 with MyServer(("localhost", 2525)) as server:
+    print("Listening on localhost:2525 ...")
+
+    def on_signal(signum, frame):
+        print("Shutting down...")
+        server.shutdown()
+
     # Run until Ctrl-C
+    signal.signal(signal.SIGINT, on_signal)
     server.serve_forever()
 ```

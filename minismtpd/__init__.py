@@ -62,6 +62,7 @@ import errno
 import socket
 import socketserver
 from email._header_value_parser import get_addr_spec, get_angle_addr
+from threading import Thread
 
 __all__ = ["SMTPServer"]
 __version__ = "minismtpd 0.4"
@@ -477,3 +478,12 @@ class SMTPServer(socketserver.ThreadingTCPServer):
 
         """
         raise NotImplementedError
+
+    def shutdown(self):
+        """Shut down the server.
+
+        BaseServer.shutdown() must be called from a different thread, otherwise
+        it will deadlock. We do that here, so clients don't need to know about
+        this gotcha.
+        """
+        Thread(target=super().shutdown).start()

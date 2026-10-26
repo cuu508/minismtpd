@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 ## 0.4 - Unreleased
 - Use ThreadingTCPServer as the base (for concurrent connection support)
 - Add 5 minute server timeout
+- Implement SMTPServer.shutdown() which calls BaseServer.shutdown() on thread
+- Add graceful shutdown in the README usage example
 
 ## 0.3 - 2026-10-12
 - Fix crash when client sends invalid UTF8
