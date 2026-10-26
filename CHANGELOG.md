@@ -1,6 +1,9 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
+## 0.5 - 2026-10-26
+- Enable SO_REUSEADDR to support quick server restarts
+
 ## 0.4 - 2026-10-26
 - Use ThreadingTCPServer as the base (for concurrent connection support)
 - Add 5 minute server timeout

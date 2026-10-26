@@ -442,7 +442,11 @@ class SMTPChannel(socketserver.StreamRequestHandler):
 
 class SMTPServer(socketserver.ThreadingTCPServer):
     def __init__(self, server_address: tuple[str, int]) -> None:
+        # When shutting down, don't wait for threads to complete (may take 5 minutes)
         self.daemon_threads = True
+        # Allow the reuse a local socket in TIME_WAIT state.
+        # (otherwise we may get "Address already in use" when restarting the server)
+        self.allow_reuse_address = True
         super().__init__(server_address, SMTPChannel)
 
     def process_rcpt(self, rcptto: str) -> str | None:
