@@ -1,7 +1,7 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
-## 0.4 - Unreleased
+## 0.4 - 2026-10-26
 - Use ThreadingTCPServer as the base (for concurrent connection support)
 - Add 5 minute server timeout
 - Implement SMTPServer.shutdown() which calls BaseServer.shutdown() on thread
