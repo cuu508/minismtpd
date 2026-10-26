@@ -479,7 +479,7 @@ class SMTPServer(socketserver.ThreadingTCPServer):
         """
         raise NotImplementedError
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         """Shut down the server.
 
         BaseServer.shutdown() must be called from a different thread, otherwise
