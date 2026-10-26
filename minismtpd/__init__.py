@@ -427,7 +427,7 @@ class SMTPChannel(socketserver.StreamRequestHandler):
         self.push("502 EXPN not implemented")
 
 
-class SMTPServer(socketserver.TCPServer):
+class SMTPServer(socketserver.ThreadingTCPServer):
     def __init__(self, server_address: tuple[str, int]) -> None:
         super().__init__(server_address, SMTPChannel)
 
